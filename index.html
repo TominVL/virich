@@ -4,243 +4,154 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>AR — Virich Surface</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { overflow: hidden; background: #000; font-family: Arial, sans-serif; }
 
-    #info {
+  <!-- Local copies — upload these files to your repo -->
+  <script src="aframe.min.js"></script>
+  <script src="aframe-ar.js"></script>
+
+  <style>
+    body { margin: 0; overflow: hidden; }
+    #ui {
       position: fixed;
-      bottom: 20px;
+      bottom: 24px;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(0,0,0,0.65);
+      background: rgba(0,0,0,0.6);
       color: #fff;
+      font-family: Arial, sans-serif;
       font-size: 14px;
       padding: 8px 20px;
       border-radius: 20px;
-      z-index: 999;
+      z-index: 9999;
       pointer-events: none;
-      text-align: center;
-      transition: background 0.3s;
+      white-space: nowrap;
     }
-    #info.found {
-      background: rgba(0, 180, 80, 0.75);
-    }
+    #ui.found { background: rgba(0,160,60,0.7); }
   </style>
 </head>
 <body>
 
-<div id="info">Наведи камеру на маркер</div>
+<div id="ui">Наведи камеру на маркер ▼</div>
 
-<!-- Three.js r128 -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<!-- AR.js for Three.js -->
-<script src="https://raw.githack.com/jeromeetienne/AR.js/2.2.2/three.js/build/ar-threex.js"></script>
+<a-scene
+  embedded
+  arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;"
+  renderer="logarithmicDepthBuffer: true; antialias: true;"
+  vr-mode-ui="enabled: false">
+
+  <a-entity camera></a-entity>
+
+  <a-marker type="pattern" url="marker.patt" smooth="true" smoothCount="5" smoothTolerance="0.01">
+    <a-entity virich-surface></a-entity>
+  </a-marker>
+
+</a-scene>
 
 <script>
-'use strict';
-
 /* ═══════════════════════════════════════════
-   VIRICH CYCLIC SURFACE — Three.js geometry
-   Same math as PA#1
+   VIRICH SURFACE — A-Frame component
 ═══════════════════════════════════════════ */
-function f_func(v, a, b) {
-    return (a * b) / Math.sqrt(a*a*Math.sin(v)*Math.sin(v) + b*b*Math.cos(v)*Math.cos(v));
+function f_func(v,a,b){
+  return (a*b)/Math.sqrt(a*a*Math.sin(v)*Math.sin(v)+b*b*Math.cos(v)*Math.cos(v));
+}
+function parametric(u,v,a,b,c,d){
+  let fv=f_func(v,a,b);
+  let x=0.5*(fv*(1+Math.cos(u))+(d*d-c*c)*(1-Math.cos(u))/fv)*Math.cos(v);
+  let y=0.5*(fv*(1+Math.cos(u))+(d*d-c*c)*(1-Math.cos(u))/fv)*Math.sin(v);
+  let z=0.5*(fv-(d*d-c*c)/fv)*Math.sin(u);
+  return [x,y,z];
+}
+function calcNormal(u,v,a,b,c,d){
+  let eps=0.01;
+  let p=parametric(u,v,a,b,c,d);
+  let pu=parametric(u+eps,v,a,b,c,d);
+  let pv=parametric(u,v+eps,a,b,c,d);
+  let du=[pu[0]-p[0],pu[1]-p[1],pu[2]-p[2]];
+  let dv=[pv[0]-p[0],pv[1]-p[1],pv[2]-p[2]];
+  let nx=du[1]*dv[2]-du[2]*dv[1];
+  let ny=du[2]*dv[0]-du[0]*dv[2];
+  let nz=du[0]*dv[1]-du[1]*dv[0];
+  let L=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
+  return [nx/L,ny/L,nz/L];
 }
 
-function parametric(u, v, a, b, c, d) {
-    let fv = f_func(v, a, b);
-    let x = 0.5 * (fv*(1+Math.cos(u)) + (d*d-c*c)*(1-Math.cos(u))/fv) * Math.cos(v);
-    let y = 0.5 * (fv*(1+Math.cos(u)) + (d*d-c*c)*(1-Math.cos(u))/fv) * Math.sin(v);
-    let z = 0.5 * (fv - (d*d-c*c)/fv) * Math.sin(u);
-    return [x, y, z];
-}
-
-function calcNormal(u, v, a, b, c, d) {
-    let eps = 0.01;
-    let p  = parametric(u, v, a, b, c, d);
-    let pu = parametric(u+eps, v, a, b, c, d);
-    let pv = parametric(u, v+eps, a, b, c, d);
-    let du = [pu[0]-p[0], pu[1]-p[1], pu[2]-p[2]];
-    let dv = [pv[0]-p[0], pv[1]-p[1], pv[2]-p[2]];
-    let nx = du[1]*dv[2] - du[2]*dv[1];
-    let ny = du[2]*dv[0] - du[0]*dv[2];
-    let nz = du[0]*dv[1] - du[1]*dv[0];
-    let L  = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
-    return [nx/L, ny/L, nz/L];
-}
-
-function buildVirichGeometry(U, V, scale) {
-    let a=2, b=1, c=0.5, d=1.2;
+AFRAME.registerComponent('virich-surface', {
+  init: function(){
+    const U=40, V=40, a=2, b=1, c=0.5, d=1.2, S=0.04;
     let positions=[], normals=[], indices=[];
 
-    for (let j = 0; j <= V; j++) {
-        let v = 2*Math.PI*j/V;
-        for (let i = 0; i <= U; i++) {
-            let u = 2*Math.PI*i/U;
-            let p = parametric(u, v, a, b, c, d);
-            let n = calcNormal(u, v, a, b, c, d);
-            positions.push(p[0]*scale, p[2]*scale, -p[1]*scale); // Y-up for Three.js
-            normals.push(n[0], n[2], -n[1]);
-        }
+    for(let j=0;j<=V;j++){
+      let v=2*Math.PI*j/V;
+      for(let i=0;i<=U;i++){
+        let u=2*Math.PI*i/U;
+        let p=parametric(u,v,a,b,c,d);
+        let n=calcNormal(u,v,a,b,c,d);
+        positions.push(p[0]*S, p[2]*S, -p[1]*S);
+        normals.push(n[0], n[2], -n[1]);
+      }
     }
+    let row=U+1;
+    for(let j=0;j<V;j++)
+      for(let i=0;i<U;i++){
+        let p0=j*row+i,p1=p0+1,p2=p0+row,p3=p2+1;
+        indices.push(p0,p2,p1, p1,p2,p3);
+      }
 
-    let row = U+1;
-    for (let j = 0; j < V; j++)
-        for (let i = 0; i < U; i++) {
-            let p0=j*row+i, p1=p0+1, p2=p0+row, p3=p2+1;
-            indices.push(p0,p2,p1, p1,p2,p3);
-        }
-
-    let geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geo.setAttribute('normal',   new THREE.Float32BufferAttribute(normals, 3));
+    let geo=new THREE.BufferGeometry();
+    geo.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+    geo.setAttribute('normal',  new THREE.Float32BufferAttribute(normals,3));
     geo.setIndex(indices);
-    return geo;
-}
 
-function buildVirichWireGeometry(U, V, scale) {
-    let a=2, b=1, c=0.5, d=1.2;
-    let pts = [];
-    for (let j = 0; j <= V; j++) {
-        pts[j] = [];
-        let v = 2*Math.PI*j/V;
-        for (let i = 0; i <= U; i++) {
-            let u = 2*Math.PI*i/U;
-            let p = parametric(u, v, a, b, c, d);
-            pts[j][i] = new THREE.Vector3(p[0]*scale, p[2]*scale, -p[1]*scale);
-        }
+    let mat=new THREE.MeshPhongMaterial({
+      color:0x3399ff, emissive:0x112244, shininess:80,
+      side:THREE.DoubleSide, transparent:true, opacity:0.9
+    });
+    this.el.setObject3D('mesh', new THREE.Mesh(geo,mat));
+
+    // Wireframe
+    let pts=[];
+    for(let j=0;j<=V;j++){
+      pts[j]=[];
+      let v=2*Math.PI*j/V;
+      for(let i=0;i<=U;i++){
+        let u=2*Math.PI*i/U;
+        let p=parametric(u,v,a,b,c,d);
+        pts[j][i]=[p[0]*S,p[2]*S,-p[1]*S];
+      }
     }
+    let wpos=[];
+    for(let j=0;j<=V;j++)
+      for(let i=0;i<U;i++)
+        wpos.push(...pts[j][i],...pts[j][i+1]);
+    for(let i=0;i<=U;i++)
+      for(let j=0;j<V;j++)
+        wpos.push(...pts[j][i],...pts[j+1][i]);
 
-    let positions = [];
-    for (let j = 0; j <= V; j++)
-        for (let i = 0; i < U; i++) {
-            let a = pts[j][i], b = pts[j][i+1];
-            positions.push(a.x,a.y,a.z, b.x,b.y,b.z);
-        }
-    for (let i = 0; i <= U; i++)
-        for (let j = 0; j < V; j++) {
-            let a = pts[j][i], b = pts[j+1][i];
-            positions.push(a.x,a.y,a.z, b.x,b.y,b.z);
-        }
+    let wgeo=new THREE.BufferGeometry();
+    wgeo.setAttribute('position',new THREE.Float32BufferAttribute(wpos,3));
+    let wire=new THREE.LineSegments(wgeo,
+      new THREE.LineBasicMaterial({color:0x00eeff,transparent:true,opacity:0.7}));
+    this.el.setObject3D('wireframe',wire);
 
-    let geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    return geo;
-}
-
-/* ═══════════════════════════════════════════
-   AR.js SETUP
-═══════════════════════════════════════════ */
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-renderer.setPixelRatio(window.devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.domElement.style.position = 'absolute';
-renderer.domElement.style.top = '0';
-renderer.domElement.style.left = '0';
-document.body.appendChild(renderer.domElement);
-
-const scene  = new THREE.Scene();
-const camera = new THREE.Camera();
-scene.add(camera);
-
-// Lighting
-scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
-dirLight.position.set(2, 4, 2);
-scene.add(dirLight);
-
-// AR Toolkit Source — webcam
-const arToolkitSource = new THREEx.ArToolkitSource({ sourceType: 'webcam' });
-arToolkitSource.init(() => { setTimeout(onResize, 200); });
-
-// AR Toolkit Context
-const arToolkitContext = new THREEx.ArToolkitContext({
-    cameraParametersUrl: 'https://raw.githack.com/jeromeetienne/AR.js/master/data/data/camera_para.dat',
-    detectionMode: 'mono',
-    maxDetectionRate: 60,
-    canvasWidth:  640,
-    canvasHeight: 480,
-});
-arToolkitContext.init(() => {
-    camera.projectionMatrix.copy(arToolkitContext.getProjectionMatrix());
+    // Lights
+    this.el.sceneEl.object3D.add(new THREE.AmbientLight(0xffffff,0.5));
+    let dir=new THREE.DirectionalLight(0xffffff,0.9);
+    dir.position.set(1,2,1);
+    this.el.sceneEl.object3D.add(dir);
+  }
 });
 
-window.addEventListener('resize', onResize);
-function onResize() {
-    arToolkitSource.onResizeElement();
-    arToolkitSource.copyElementSizeTo(renderer.domElement);
-    if (arToolkitContext.arController !== null) {
-        arToolkitSource.copyElementSizeTo(arToolkitContext.arController.canvas);
-    }
-}
-
-// Marker root — tied to your custom pattern
-const markerRoot = new THREE.Group();
-scene.add(markerRoot);
-
-new THREEx.ArMarkerControls(arToolkitContext, markerRoot, {
-    type   : 'pattern',
-    patternUrl: 'marker.patt',
-    // ↑ We use built-in HIRO first to test; replace with 'marker.patt' after generating yours
+// Marker events
+const marker = document.querySelector('a-marker');
+const ui = document.getElementById('ui');
+marker.addEventListener('markerFound', ()=>{
+  ui.textContent='✓ Маркер знайдено!';
+  ui.classList.add('found');
 });
-
-/* ═══════════════════════════════════════════
-   VIRICH SURFACE OBJECT
-═══════════════════════════════════════════ */
-const SCALE = 0.035;
-const U = 40, V = 40;
-
-// Filled mesh
-const surfMesh = new THREE.Mesh(
-    buildVirichGeometry(U, V, SCALE),
-    new THREE.MeshPhongMaterial({
-        color: 0x3399ff,
-        emissive: 0x112244,
-        shininess: 80,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.88,
-    })
-);
-markerRoot.add(surfMesh);
-
-// Wireframe overlay
-const wireMesh = new THREE.LineSegments(
-    buildVirichWireGeometry(U, V, SCALE),
-    new THREE.LineBasicMaterial({ color: 0x00eeff, transparent: true, opacity: 0.6 })
-);
-markerRoot.add(wireMesh);
-
-/* ═══════════════════════════════════════════
-   RENDER LOOP
-═══════════════════════════════════════════ */
-const infoEl = document.getElementById('info');
-let wasVisible = false;
-
-function animate() {
-    requestAnimationFrame(animate);
-
-    if (arToolkitSource.ready) {
-        arToolkitContext.update(arToolkitSource.domElement);
-
-        const visible = markerRoot.visible;
-        if (visible !== wasVisible) {
-            if (visible) {
-                infoEl.textContent = '✓ Маркер знайдено!';
-                infoEl.classList.add('found');
-            } else {
-                infoEl.textContent = 'Наведи камеру на маркер';
-                infoEl.classList.remove('found');
-            }
-            wasVisible = visible;
-        }
-    }
-
-    renderer.render(scene, camera);
-}
-
-animate();
+marker.addEventListener('markerLost', ()=>{
+  ui.textContent='Наведи камеру на маркер ▼';
+  ui.classList.remove('found');
+});
 </script>
 </body>
 </html>
