@@ -156,7 +156,7 @@ arToolkitSource.init(() => { setTimeout(onResize, 200); });
 
 // AR Toolkit Context
 const arToolkitContext = new THREEx.ArToolkitContext({
-    cameraParametersUrl: THREEx.ArToolkitContext.baseURL + '../data/data/camera_para.dat',
+    cameraParametersUrl: 'https://raw.githack.com/jeromeetienne/AR.js/master/data/data/camera_para.dat',
     detectionMode: 'mono',
     maxDetectionRate: 60,
     canvasWidth:  640,
@@ -181,7 +181,7 @@ scene.add(markerRoot);
 
 new THREEx.ArMarkerControls(arToolkitContext, markerRoot, {
     type   : 'pattern',
-    patternUrl: THREEx.ArToolkitContext.baseURL + 'marker.patt',
+    patternUrl: 'marker.patt',
     // ↑ We use built-in HIRO first to test; replace with 'marker.patt' after generating yours
 });
 
